@@ -2,17 +2,17 @@
    AIRWidget
 
    Note:
-   
+
    Tested with the current version of IRscope 201a
    and an Arduino Nano CH340 clone (other combinations may work)
 
-  
-   Put a ~10uF capacitor (best with a jumper) between the Nano Reset pin and GND to suppress the 
+
+   Put a ~10uF capacitor (best with a jumper) between the Nano Reset pin and GND to suppress the
      reset caused be (unwanted) DTR signal sent from IRscope when the user clicks on "capture".
 	   Disconnect this capacitor (via the jumper) during uploading of sketches to the Nano.
 
    QSE159 output to Nano pin 3
-   
+
    Wigit ready for IR session led (optional) between Nano pin 6 and ground with ~1k resistor
 
    2022-09-30 V0_04 ready for user tests
@@ -23,8 +23,8 @@
                     LED pin 6 now indicates Widget ready to accept IR.
                     Eliminate loop overhead
                     Times out of an IR session 2 seconds after last pulse detected
-   2022-10-04 V0_08 Cleanup. Activate pull up resistor on irSense pin.  
-   2022-10-04 V0_09 Deliver a 0 on first pulse             
+   2022-10-04 V0_08 Cleanup. Activate pull up resistor on irSense pin.
+   2022-10-04 V0_09 Deliver a 0 on first pulse
 
 */
 
@@ -39,7 +39,10 @@ volatile uint8_t irPulseCount = 0 ;  // cumulative pulses found
 enum state_t { START, WAIT_FIRST_PULSE, IN_SEND_TO_HOST } ;
 state_t state ;
 
-
+uint32_t lastSendAtUs = 0 ;
+uint32_t lastIrPulseAtUs = 0 ;
+uint8_t lastIrPulseCount = 0 ;
+uint32_t us ;
 
 void extISR( ) {
   // ISR called by externalInterrupt
@@ -55,18 +58,13 @@ void setup() {
 
   digitalWrite( captureLedPin, LOW ) ;
   state = state_t::START ;
+}
 
 
-  uint32_t lastSendAtUs = 0 ;
-  uint32_t lastIrPulseAtUs = 0 ;
-  uint8_t lastIrPulseCount = 0 ;
-  uint32_t us ;
-
-
-  for (;;) {
+void loop() {
 
     us = micros() ;
-    
+
     switch ( state ) {
 
       case state_t::START : {
@@ -89,7 +87,7 @@ void setup() {
 
       case state_t::IN_SEND_TO_HOST : {
           if ( us - lastSendAtUs >= sendIntervalUs ) {  // every 100us
-      
+
             Serial.write( irPulseCount ) ;  // binary
             if ( irPulseCount != lastIrPulseCount ) {
               // we are still getting pulses
@@ -106,8 +104,5 @@ void setup() {
         }
 
     }  // switch
-
-  }  // for
 }
 
-void loop() {}
