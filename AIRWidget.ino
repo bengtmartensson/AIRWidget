@@ -100,75 +100,72 @@ void setup() {
     OCR0A = 199; // 10KHz with PS = /8 with 16MHz clock
     TIMSK0 = 0; // no timer0 interrupts
     TCNT0 = 0;
-
-    uint32_t lastIrPulseAtTicks = 0; // 100uS ticks
-    uint8_t lastIrPulseCount = 0;
-    uint32_t ticks100us = 0; // 100uS counter
-
-    for (;;) {
-        switch (state) {
-
-            case state_t::START:
-            {
-                if (state != stateOld) {
-                    digitalWrite(captureLedPin, LOW);
-                    Serial.flush(); // ??
-                    stateOld = state;
-                }
-
-                if ((!compatibilityMode) || (compatibilityMode && RTSLOW)) {
-                    digitalWrite(captureLedPin, HIGH);
-                    changeState(state_t::WAIT_FIRST_PULSE);
-                    lastIrPulseAtTicks = ticks100us;
-                }
-                break;
-            }
-
-            case state_t::WAIT_FIRST_PULSE:
-            {
-
-                if (compatibilityMode && RTSHIGH) {
-                    changeState(state_t::START);
-                }
-
-                if (irPulseCount != lastIrPulseCount) {
-                    // initialise timer0
-                    cli();
-                    TCNT0 = 0;
-                    TIFR0 |= bit(TOV0);
-                    sei();
-                    changeState(state_t::IN_SEND_TO_HOST);
-                    digitalWrite(captureLedPin, LOW);
-                    Serial.write(lastIrPulseCount); // binary
-                }
-                break;
-            }
-
-            case state_t::IN_SEND_TO_HOST:
-            {
-
-                if (TIFR0 & bit(TOV0)) { // every 100us
-                    TIFR0 |= bit(TOV0); // reset flag
-                    ticks100us++;
-                    Serial.write(irPulseCount); // binary
-                    if (irPulseCount != lastIrPulseCount) {
-                        // we are still getting pulses
-                        lastIrPulseAtTicks = ticks100us;
-                        lastIrPulseCount = irPulseCount;
-                    } else if (!compatibilityMode && (ticks100us - lastIrPulseAtTicks > 5000UL)) {
-                        // start again 500us after last pulse received
-                        changeState(state_t::START);
-                    }
-                    if (compatibilityMode && RTSHIGH) {
-                        // rts host says stop
-                        changeState(state_t::START);
-                    }
-                }
-                break;
-            }
-        } // switch
-    } // for
 }
 
+uint32_t lastIrPulseAtTicks = 0; // 100uS ticks
+uint8_t lastIrPulseCount = 0;
+uint32_t ticks100us = 0; // 100uS counter
+
 void loop() {
+    switch (state) {
+
+        case state_t::START:
+        {
+            if (state != stateOld) {
+                digitalWrite(captureLedPin, LOW);
+                Serial.flush(); // ??
+                stateOld = state;
+            }
+
+            if ((!compatibilityMode) || (compatibilityMode && RTSLOW)) {
+                digitalWrite(captureLedPin, HIGH);
+                changeState(state_t::WAIT_FIRST_PULSE);
+                lastIrPulseAtTicks = ticks100us;
+            }
+            break;
+        }
+
+        case state_t::WAIT_FIRST_PULSE:
+        {
+
+            if (compatibilityMode && RTSHIGH) {
+                changeState(state_t::START);
+            }
+
+            if (irPulseCount != lastIrPulseCount) {
+                // initialise timer0
+                cli();
+                TCNT0 = 0;
+                TIFR0 |= bit(TOV0);
+                sei();
+                changeState(state_t::IN_SEND_TO_HOST);
+                digitalWrite(captureLedPin, LOW);
+                Serial.write(lastIrPulseCount); // binary
+            }
+            break;
+        }
+
+        case state_t::IN_SEND_TO_HOST:
+        {
+
+            if (TIFR0 & bit(TOV0)) { // every 100us
+                TIFR0 |= bit(TOV0); // reset flag
+                ticks100us++;
+                Serial.write(irPulseCount); // binary
+                if (irPulseCount != lastIrPulseCount) {
+                    // we are still getting pulses
+                    lastIrPulseAtTicks = ticks100us;
+                    lastIrPulseCount = irPulseCount;
+                } else if (!compatibilityMode && (ticks100us - lastIrPulseAtTicks > 5000UL)) {
+                    // start again 500us after last pulse received
+                    changeState(state_t::START);
+                }
+                if (compatibilityMode && RTSHIGH) {
+                    // rts host says stop
+                    changeState(state_t::START);
+                }
+            }
+            break;
+        }
+    } // switch
 }
