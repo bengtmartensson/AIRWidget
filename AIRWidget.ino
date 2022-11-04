@@ -55,14 +55,8 @@
 */
 
 
-#define RTSHIGH ((PINB & 1<<0))  // pin 8 = PB0. change this if rtsPin is changed
-#define RTSLOW  (!(PINB & 1<<0))  // pin 8 = PB0. change this if rtsPin is changed
-
-const uint8_t compatibilityMode = false ;  // false for AIRwidget mode; true for IRwidget compatibility mode
-
 const uint8_t irSense = 3 ; // must be an external Interrupt pin
 const uint8_t captureLedPin = 6 ;  // optional - indicating the device is ready to receive IR data
-const uint8_t rtsPin = 8 ;  // compatibilityMode (warning: direct port access also)
 
 volatile uint8_t irPulseCount = 0 ;  // cumulative pulses found
 enum state_t {
@@ -86,7 +80,6 @@ void changeState(state_t stateNew) {
 void setup() {
     pinMode(irSense, INPUT_PULLUP);
     pinMode(captureLedPin, OUTPUT);
-    pinMode(rtsPin, INPUT_PULLUP); // compatibilityMode
 
     Serial.begin(115200); // 115200 baud, SERIAL_8N1: 8bits, no parity, 1 stop bit (default)
     attachInterrupt(digitalPinToInterrupt(irSense), extISR, FALLING);
@@ -108,7 +101,6 @@ uint32_t ticks100us = 0; // 100uS counter
 
 void loop() {
     switch (state) {
-
         case state_t::START:
         {
             if (state != stateOld) {
@@ -117,21 +109,14 @@ void loop() {
                 stateOld = state;
             }
 
-            if ((!compatibilityMode) || (compatibilityMode && RTSLOW)) {
-                digitalWrite(captureLedPin, HIGH);
-                changeState(state_t::WAIT_FIRST_PULSE);
-                lastIrPulseAtTicks = ticks100us;
-            }
+            digitalWrite(captureLedPin, HIGH);
+            changeState(state_t::WAIT_FIRST_PULSE);
+            lastIrPulseAtTicks = ticks100us;
             break;
         }
 
         case state_t::WAIT_FIRST_PULSE:
         {
-
-            if (compatibilityMode && RTSHIGH) {
-                changeState(state_t::START);
-            }
-
             if (irPulseCount != lastIrPulseCount) {
                 // initialise timer0
                 cli();
@@ -156,12 +141,8 @@ void loop() {
                     // we are still getting pulses
                     lastIrPulseAtTicks = ticks100us;
                     lastIrPulseCount = irPulseCount;
-                } else if (!compatibilityMode && (ticks100us - lastIrPulseAtTicks > 5000UL)) {
+                } else if (ticks100us - lastIrPulseAtTicks > 5000UL) {
                     // start again 500us after last pulse received
-                    changeState(state_t::START);
-                }
-                if (compatibilityMode && RTSHIGH) {
-                    // rts host says stop
                     changeState(state_t::START);
                 }
             }
