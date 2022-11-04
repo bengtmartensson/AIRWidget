@@ -40,7 +40,7 @@
    (1) AIRwidget mode. This works with an unmodified Nano and host applications such as
          IRScope v3.05 and IrScrutinizer v2.4.0.  It is selected by setting
          compatibilityMode=false.
-   (2) IRwidget compatibility mode. This requires 
+   (2) IRwidget compatibility mode. This requires
         (a) a connection from the Nano's USB/UART chip RTS pin to Nano pin D8.
         (b) a 10uF capacitor jumpered between the Nano reset pin and ground to suppress
             the DTR signal which the host application (such as IRscope v2.01a and
@@ -65,115 +65,110 @@ const uint8_t captureLedPin = 6 ;  // optional - indicating the device is ready 
 const uint8_t rtsPin = 8 ;  // compatibilityMode (warning: direct port access also)
 
 volatile uint8_t irPulseCount = 0 ;  // cumulative pulses found
-enum state_t { START, WAIT_FIRST_PULSE, IN_SEND_TO_HOST } ;
-state_t state ;
-state_t stateOld ;
+enum state_t {
+    START,
+    WAIT_FIRST_PULSE,
+    IN_SEND_TO_HOST
+};
+state_t state;
+state_t stateOld;
 
-
-void extISR( ) {
-  // ISR called by externalInterrupt
-  irPulseCount++ ; // rolls over at 0xFF
+void extISR() {
+    // ISR called by externalInterrupt
+    irPulseCount++; // rolls over at 0xFF
 }
 
-void changeState( state_t stateNew ) {
-  stateOld = state ;
-  state = stateNew ;
+void changeState(state_t stateNew) {
+    stateOld = state;
+    state = stateNew;
 }
-
-
 
 void setup() {
-  pinMode( irSense, INPUT_PULLUP ) ;
-  pinMode( captureLedPin, OUTPUT ) ;
-  pinMode( rtsPin, INPUT_PULLUP ) ; // compatibilityMode
+    pinMode(irSense, INPUT_PULLUP);
+    pinMode(captureLedPin, OUTPUT);
+    pinMode(rtsPin, INPUT_PULLUP); // compatibilityMode
 
-  Serial.begin( 115200 ) ;  // 115200 baud, SERIAL_8N1: 8bits, no parity, 1 stop bit (default)
-  attachInterrupt( digitalPinToInterrupt( irSense ) , extISR, FALLING ) ;
+    Serial.begin(115200); // 115200 baud, SERIAL_8N1: 8bits, no parity, 1 stop bit (default)
+    attachInterrupt(digitalPinToInterrupt(irSense), extISR, FALLING);
 
-  state = state_t::IN_SEND_TO_HOST ;  // different to START
-  changeState( state_t::START ) ;
+    state = state_t::IN_SEND_TO_HOST; // different to START
+    changeState(state_t::START);
 
+    // reconfigure timer0 (millis(), micros() etc. disabled)
+    TCCR0A = bit(WGM00) | bit(WGM01); // fast PWM
+    TCCR0B = bit(WGM02) | bit(CS01); // fast PWM, prescaler /8
+    OCR0A = 199; // 10KHz with PS = /8 with 16MHz clock
+    TIMSK0 = 0; // no timer0 interrupts
+    TCNT0 = 0;
 
+    uint32_t lastIrPulseAtTicks = 0; // 100uS ticks
+    uint8_t lastIrPulseCount = 0;
+    uint32_t ticks100us = 0; // 100uS counter
 
-  // reconfigure timer0 (millis(), micros() etc. disabled)
-  TCCR0A = bit(WGM00) | bit(WGM01) ;  // fast PWM
-  TCCR0B = bit(WGM02) | bit(CS01) ;   // fast PWM, prescaler /8
-  OCR0A = 199 ; // 10KHz with PS = /8 with 16MHz clock
-  TIMSK0 = 0 ;  // no timer0 interrupts
-  TCNT0 = 0 ;
+    for (;;) {
+        switch (state) {
 
-  uint32_t lastIrPulseAtTicks = 0 ;  // 100uS ticks
-  uint8_t lastIrPulseCount = 0 ;
-  uint32_t ticks100us = 0 ;  // 100uS counter
+            case state_t::START:
+            {
+                if (state != stateOld) {
+                    digitalWrite(captureLedPin, LOW);
+                    Serial.flush(); // ??
+                    stateOld = state;
+                }
 
-
-  for (;;) {
-
-    switch ( state ) {
-
-      case state_t::START : {
-
-          if ( state != stateOld ) {
-            digitalWrite( captureLedPin, LOW ) ;
-            Serial.flush() ; // ??
-            stateOld = state ;
-          }
-
-          if ( ( ! compatibilityMode ) || ( compatibilityMode && RTSLOW ) ) {
-            digitalWrite( captureLedPin, HIGH ) ;
-            changeState( state_t::WAIT_FIRST_PULSE ) ;
-            lastIrPulseAtTicks = ticks100us ;
-          }
-          break ;
-        }
-
-
-      case state_t::WAIT_FIRST_PULSE : {
-
-          if (  compatibilityMode && RTSHIGH ) {
-            changeState( state_t::START ) ;
-          }
-
-          if ( irPulseCount != lastIrPulseCount ) {
-            // initialise timer0
-            cli() ;
-            TCNT0 = 0 ;
-            TIFR0 |= bit( TOV0)  ;
-            sei() ;
-            changeState( state_t::IN_SEND_TO_HOST ) ;
-            digitalWrite( captureLedPin, LOW ) ;
-            Serial.write( lastIrPulseCount ) ;  // binary
-          }
-          break ;
-        }
-
-
-      case state_t::IN_SEND_TO_HOST : {
-
-          if ( TIFR0 & bit( TOV0 )  ) {  // every 100us
-            TIFR0 |= bit( TOV0)  ; // reset flag
-            ticks100us++ ;
-            Serial.write( irPulseCount ) ;  // binary
-            if ( irPulseCount != lastIrPulseCount ) {
-              // we are still getting pulses
-              lastIrPulseAtTicks = ticks100us ;
-              lastIrPulseCount = irPulseCount ;
+                if ((!compatibilityMode) || (compatibilityMode && RTSLOW)) {
+                    digitalWrite(captureLedPin, HIGH);
+                    changeState(state_t::WAIT_FIRST_PULSE);
+                    lastIrPulseAtTicks = ticks100us;
+                }
+                break;
             }
-            else if ( !compatibilityMode && (ticks100us - lastIrPulseAtTicks > 5000UL) ) {
-              // start again 500us after last pulse received
-              changeState( state_t::START ) ;
-            }
-            if ( compatibilityMode && RTSHIGH ) {
-              // rts host says stop
-              changeState( state_t::START ) ;
-            }
-          }
-          break ;
-        }
 
-    }  // switch
+            case state_t::WAIT_FIRST_PULSE:
+            {
 
-  }  // for
+                if (compatibilityMode && RTSHIGH) {
+                    changeState(state_t::START);
+                }
+
+                if (irPulseCount != lastIrPulseCount) {
+                    // initialise timer0
+                    cli();
+                    TCNT0 = 0;
+                    TIFR0 |= bit(TOV0);
+                    sei();
+                    changeState(state_t::IN_SEND_TO_HOST);
+                    digitalWrite(captureLedPin, LOW);
+                    Serial.write(lastIrPulseCount); // binary
+                }
+                break;
+            }
+
+            case state_t::IN_SEND_TO_HOST:
+            {
+
+                if (TIFR0 & bit(TOV0)) { // every 100us
+                    TIFR0 |= bit(TOV0); // reset flag
+                    ticks100us++;
+                    Serial.write(irPulseCount); // binary
+                    if (irPulseCount != lastIrPulseCount) {
+                        // we are still getting pulses
+                        lastIrPulseAtTicks = ticks100us;
+                        lastIrPulseCount = irPulseCount;
+                    } else if (!compatibilityMode && (ticks100us - lastIrPulseAtTicks > 5000UL)) {
+                        // start again 500us after last pulse received
+                        changeState(state_t::START);
+                    }
+                    if (compatibilityMode && RTSHIGH) {
+                        // rts host says stop
+                        changeState(state_t::START);
+                    }
+                }
+                break;
+            }
+        } // switch
+    } // for
 }
 
-void loop() {}
+void loop() {
+}
