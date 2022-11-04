@@ -54,9 +54,12 @@
 
 */
 
+#define BAUD 115200
+#define SENSOR_VCC 3
+//#define SENSOR_GND
 
-const uint8_t irSense = 3 ; // must be an external Interrupt pin
-const uint8_t captureLedPin = 6 ;  // optional - indicating the device is ready to receive IR data
+static const uint8_t irSense = 2; // must be an external Interrupt pin
+static const uint8_t captureLedPin = LED_BUILTIN;  // optional - indicating the device is ready to receive IR data
 
 volatile uint8_t irPulseCount = 0 ;  // cumulative pulses found
 enum state_t {
@@ -78,10 +81,19 @@ void changeState(state_t stateNew) {
 }
 
 void setup() {
+#ifdef SENSOR_VCC
+    pinMode(SENSOR_VCC, OUTPUT);
+    digitalWrite(SENSOR_VCC, HIGH);
+#endif
+#ifdef SENSOR_GND
+    pinMode(SENSOR_GND, OUTPUT);
+    digitalWrite(SENSOR_GND, LOW);
+#endif
+
     pinMode(irSense, INPUT_PULLUP);
     pinMode(captureLedPin, OUTPUT);
 
-    Serial.begin(115200); // 115200 baud, SERIAL_8N1: 8bits, no parity, 1 stop bit (default)
+    Serial.begin(BAUD); // 115200 baud, SERIAL_8N1: 8bits, no parity, 1 stop bit (default)
     attachInterrupt(digitalPinToInterrupt(irSense), extISR, FALLING);
 
     state = state_t::IN_SEND_TO_HOST; // different to START
@@ -105,7 +117,7 @@ void loop() {
         {
             if (state != stateOld) {
                 digitalWrite(captureLedPin, LOW);
-                Serial.flush(); // ??
+                //Serial.flush(); // ??
                 stateOld = state;
             }
 
@@ -132,7 +144,6 @@ void loop() {
 
         case state_t::IN_SEND_TO_HOST:
         {
-
             if (TIFR0 & bit(TOV0)) { // every 100us
                 TIFR0 |= bit(TOV0); // reset flag
                 ticks100us++;
